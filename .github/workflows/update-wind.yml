@@ -1,11 +1,10 @@
-# Kostenlos: stündlich Wind-Grid bauen und auf GitHub Pages legen
+# Stündlich Wind- + Wellen-Grid → GitHub Pages
 name: Update Wind Grid
 
 on:
   schedule:
-    # jede Stunde
     - cron: '15 * * * *'
-  workflow_dispatch: # manuell auslösbar
+  workflow_dispatch:
 
 jobs:
   update:
@@ -14,18 +13,39 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
+      - name: List files
+        run: ls -la && ls -la public || true
+
       - name: Fetch wind grid
         run: node update-wind-grid.mjs
 
-      - name: Commit world.json
+      - name: Fetch waves grid
+        run: |
+          if [ -f update-waves-grid.mjs ]; then
+            node update-waves-grid.mjs
+          else
+            echo "update-waves-grid.mjs fehlt – Wellen übersprungen"
+          fi
+
+      - name: Commit and push grids
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/world.json
-          git diff --staged --quiet || git commit -m "chore: update wind grid $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push
+          mkdir -p public
+          git add public/world.json 2>/dev/null || true
+          git add public/waves.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "Keine Änderungen zum Commit"
+            exit 0
+          fi
+          git commit -m "chore: update wind+waves grid $(date -u +%Y-%m-%dT%H:%MZ)"
+          # Remote-Änderungen holen, dann pushen (verhindert rejected)
+          git pull --rebase origin main || git pull --rebase --autostash origin main
+          git push origin main
