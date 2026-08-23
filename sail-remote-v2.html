@@ -1,0 +1,2210 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0a1628" />
+  <title>Sail Remote – Welt-Seekarte</title>
+
+  <!-- Leaflet (cdnjs als Fallback-Pfad, unpkg primär) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        onerror="this.href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css'" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js'"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0a1628;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #e0f0ff;
+    }
+    #map {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      background: #1a2a3a;
+    }
+    #boot-error {
+      position: absolute;
+      z-index: 9999;
+      left: 12px; right: 12px; top: 40%;
+      background: rgba(120,20,20,0.92);
+      color: #fff;
+      padding: 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      display: none;
+      pointer-events: auto;
+    }
+    #ui {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 10px 14px;
+      padding-top: max(10px, env(safe-area-inset-top));
+      background: linear-gradient(to bottom, rgba(0,0,0,0.75), transparent);
+      z-index: 1000;
+      pointer-events: none;
+    }
+    #ui h1 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      opacity: 0.95;
+    }
+    .stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      font-size: 12px;
+      opacity: 0.95;
+    }
+    .stat span {
+      font-weight: 600;
+      color: #7dd3fc;
+    }
+    #wind-arrow {
+      position: absolute;
+      top: 68px;
+      right: 12px;
+      width: 48px;
+      height: 48px;
+      background: rgba(0,0,0,0.55);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      border: 1px solid rgba(125, 211, 252, 0.35);
+    }
+    #wind-arrow svg {
+      transition: transform 0.4s ease;
+    }
+    #controls {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 12px;
+      padding-bottom: max(16px, env(safe-area-inset-bottom));
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      z-index: 1000;
+      pointer-events: none;
+    }
+    .btn-group {
+      display: flex;
+      gap: 8px;
+      pointer-events: auto;
+    }
+    .ctrl-btn {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: 2px solid rgba(125, 211, 252, 0.5);
+      background: rgba(10, 30, 50, 0.8);
+      color: #7dd3fc;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: background 0.15s, transform 0.1s;
+    }
+    .ctrl-btn:active, .ctrl-btn.active {
+      background: rgba(56, 189, 248, 0.4);
+      transform: scale(0.94);
+    }
+    .ctrl-btn.small {
+      width: 46px;
+      height: 46px;
+      font-size: 16px;
+    }
+    #status {
+      position: absolute;
+      bottom: 90px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.7);
+      padding: 7px 14px;
+      border-radius: 18px;
+      font-size: 12px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 1100;
+      pointer-events: none;
+      white-space: nowrap;
+      max-width: 90vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #status.show { opacity: 1; }
+
+    /* AIS Key Panel */
+    #ais-panel {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(10, 25, 45, 0.95);
+      border: 1px solid rgba(125, 211, 252, 0.4);
+      border-radius: 16px;
+      padding: 20px;
+      z-index: 2000;
+      width: min(340px, 92vw);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+      display: none;
+    }
+    #ais-panel.visible { display: block; }
+    #ais-panel h2 {
+      font-size: 16px;
+      margin-bottom: 10px;
+      color: #7dd3fc;
+    }
+    #ais-panel p {
+      font-size: 13px;
+      line-height: 1.45;
+      margin-bottom: 12px;
+      opacity: 0.9;
+    }
+    #ais-panel input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(125, 211, 252, 0.4);
+      background: rgba(0,0,0,0.4);
+      color: #e0f0ff;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    #ais-panel .btn-row {
+      display: flex;
+      gap: 8px;
+    }
+    #ais-panel button {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #ais-panel .btn-primary {
+      background: #0ea5e9;
+      color: #fff;
+    }
+    #ais-panel .btn-secondary {
+      background: rgba(255,255,255,0.1);
+      color: #e0f0ff;
+    }
+    #ais-btn {
+      position: absolute;
+      top: 68px;
+      left: 12px;
+      z-index: 1000;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(125, 211, 252, 0.35);
+      color: #7dd3fc;
+      padding: 8px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+    .ship-label {
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      white-space: nowrap;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    .leaflet-control-attribution {
+      font-size: 9px !important;
+      background: rgba(0,0,0,0.5) !important;
+      color: #aaa !important;
+    }
+    .leaflet-control-attribution a { color: #7dd3fc !important; }
+    #disclaimer {
+      position: absolute;
+      bottom: 88px;
+      left: 10px;
+      z-index: 1000;
+      font-size: 9px;
+      color: #94a3b8;
+      background: rgba(0,0,0,0.45);
+      padding: 4px 8px;
+      border-radius: 6px;
+      max-width: 46vw;
+      line-height: 1.3;
+      pointer-events: none;
+    }
+    #follow-btn, #harbours-btn, #windfield-btn, #wavefield-btn, #zoom-out-btn, #zoom-in-btn {
+      position: absolute;
+      top: 108px;
+      z-index: 1000;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(125, 211, 252, 0.35);
+      color: #7dd3fc;
+      padding: 8px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+    #follow-btn { left: 12px; }
+    #harbours-btn { left: 92px; }
+    #windfield-btn { left: 172px; }
+    #wavefield-btn { left: 272px; }
+    #zoom-out-btn { left: 372px; min-width: 40px; text-align: center; font-weight: 700; }
+    #zoom-in-btn { left: 418px; min-width: 40px; text-align: center; font-weight: 700; }
+    #windfield-btn.on, #wavefield-btn.on {
+      background: rgba(14, 165, 233, 0.45);
+      border-color: #38bdf8;
+    }
+    #wind-canvas {
+      position: absolute;
+      inset: 0;
+      z-index: 450;
+      pointer-events: none;
+      display: none;
+    }
+    .wind-barb-icon {
+      background: transparent !important;
+      border: none !important;
+    }
+    .leaflet-marker-icon.wind-barb-icon {
+      background: transparent !important;
+      border: none !important;
+    }
+    .harbour-popup h3 { margin: 0 0 6px; font-size: 14px; color: #0a1628; }
+    .harbour-popup p { margin: 0 0 4px; font-size: 12px; color: #334155; }
+    .harbour-popup button {
+      margin-top: 6px;
+      padding: 6px 10px;
+      border: none;
+      border-radius: 8px;
+      background: #0ea5e9;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="boot-error"></div>
+
+  <div id="ui">
+    <h1>⛵ Sail Remote – Welt-Seekarte</h1>
+    <div class="stats">
+      <div class="stat">Geschw.: <span id="speed">0.0</span> kn</div>
+      <div class="stat">Kurs: <span id="heading">0</span>°</div>
+      <div class="stat">TWA: <span id="twa">–</span>°</div>
+      <div class="stat">Wind: <span id="wind-speed">–</span> kn <span id="wind-dir">–</span></div>
+      <div class="stat">Seegang: <span id="wave">–</span> m</div>
+      <div class="stat">Dünung: <span id="swell">–</span> m</div>
+      <div class="stat">Boot: <span id="boat-name">Contessa 26</span></div>
+      <div class="stat">Tiefgang: <span id="draft">1.22</span> m</div>
+      <div class="stat">Tiefe: <span id="depth">–</span> m</div>
+      <div class="stat">Tide: <span id="tide">–</span></div>
+      <div class="stat">Häfen: <span id="harbour-count">0</span></div>
+      <div class="stat">Schiffe: <span id="ship-count">0</span></div>
+      <div class="stat">Zeit: <span id="timescale">1×</span></div>
+    </div>
+  </div>
+
+  <div id="wind-arrow">
+    <svg id="wind-svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#7dd3fc" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="12" y1="19" x2="12" y2="5"></line>
+      <polyline points="5 12 12 5 19 12"></polyline>
+    </svg>
+  </div>
+
+  <button id="ais-btn">AIS Key</button>
+  <button id="time-btn" style="position:absolute;top:68px;left:90px;z-index:1000;background:rgba(0,0,0,0.55);border:1px solid rgba(125,211,252,0.35);color:#7dd3fc;padding:8px 12px;border-radius:20px;font-size:12px;cursor:pointer;pointer-events:auto;">Zeit ×</button>
+  <button id="follow-btn">📍 Folgen</button>
+  <button id="harbours-btn">⚓ Häfen</button>
+  <button id="windfield-btn">🌬 Windfeld</button>
+  <button id="wavefield-btn">🌊 Wellen</button>
+  <button id="zoom-out-btn" title="Zoom −">−</button>
+  <button id="zoom-in-btn" title="Zoom +">+</button>
+  <canvas id="wind-canvas"></canvas>
+  <div id="disclaimer">Spielkarte · OSM + OpenSeaMap · nicht zur Navigation · keine NV-Chart-Lizenz</div>
+
+  <div id="status"></div>
+
+  <div id="controls">
+    <div class="btn-group">
+      <button class="ctrl-btn" id="btn-left">◀</button>
+      <button class="ctrl-btn" id="btn-right">▶</button>
+    </div>
+    <div class="btn-group">
+      <button class="ctrl-btn small" id="btn-slow">−</button>
+      <button class="ctrl-btn" id="btn-sail">⛵</button>
+      <button class="ctrl-btn small" id="btn-fast">+</button>
+    </div>
+  </div>
+
+  <!-- AIS Key Panel -->
+  <div id="ais-panel">
+    <h2>AIS – Echte Schiffe</h2>
+    <p>
+      Hol dir einen kostenlosen API-Key auf<br>
+      <strong>aisstream.io</strong> (einmal anmelden).<br>
+      Dann erscheinen echte Schiffe um dich herum.
+    </p>
+    <input type="text" id="ais-key-input" placeholder="Dein aisstream.io API-Key" autocomplete="off" />
+    <div class="btn-row">
+      <button class="btn-secondary" id="ais-cancel">Abbrechen</button>
+      <button class="btn-primary" id="ais-save">Speichern & Verbinden</button>
+    </div>
+  </div>
+
+  <script>
+    // ===================== CONFIG =====================
+    // Kieler Bucht – weit draußen, klar Tiefwasser
+    const START_LAT = 54.52;
+    const START_LON = 10.35;
+    const WIND_UPDATE_MS = 4 * 60 * 1000;
+    // Kostenloses Wind-Grid (GitHub Pages). Leer = nur Modell.
+    // Beispiel: 'https://DEIN-USER.github.io/sail-remote-wind/world.json'
+    const WIND_GRID_URL = 'https://kurs220sw-cmyk.github.io/sail-remote-wind/public/world.json';
+    const WAVE_GRID_URL = 'https://kurs220sw-cmyk.github.io/sail-remote-wind/public/waves.json';
+    let waveFieldOn = false;
+    let waveFieldLayer = null;
+    let waveGridRemote = null;
+    let waveGridRemoteAt = 0;
+    let windGridRemote = null; // { updated, points: [{lat,lon,speed,dir}] }
+    let windGridRemoteAt = 0;
+    const AIS_BOX_DEG = 0.35;
+    const GAME_SPEED_FACTOR = 1.0;
+    // Test-Steuerung: bewusst schnell und sichtbar auf der Karte
+    const MOVE_DEG_PER_SEC = 0.04;
+    const TURN_DEG_PER_SEC = 90;
+    // Landmaske: lokal, synchron (kein Overpass-Delay)
+    let landPolygons = []; // Array von Ringen [[lon,lat], ...]
+    let landMaskReady = false;
+
+    // ===================== STATE =====================
+    let timeScale = 1;
+    const TIME_SCALE_STEPS = [1, 5, 10, 20, 50];
+
+    // Startboot: Contessa 26 (David Sadler / Jeremy Rogers)
+    // Klein für 3 Personen – Weltumsegelung erst mit größerer Yacht
+    const boatType = {
+      name: 'Contessa 26',
+      loa: 7.77,          // m
+      lwl: 6.10,
+      beam: 2.29,
+      draft: 1.22,        // m Tiefgang – Kollision wenn Tiefe < draft + 0.30
+      displacement: 2449, // kg
+      ballast: 1043,
+      hullSpeed: 6.0,     // kn
+      crewMax: 3,         // eng; komfortabel eher 2
+      berths: 4,
+      waterL: 45,
+      fuelL: 23,
+      engineHp: 7
+    };
+    const KEEL_CLEARANCE = 0.30; // Sicherheitsabstand unter Kiel (m)
+
+    const boat = {
+      lat: START_LAT,
+      lon: START_LON,
+      heading: 20,
+      speed: 0,
+      sailTrim: 1,
+      draft: boatType.draft
+    };
+    let lastDepth = 12;       // Kartentiefe ohne Tide
+    let lastTide = 0;         // m Offset (positiv = höherer Pegel)
+    let lastTideRising = true;
+
+    // letzte gültige Wasser-Position (für Kollision)
+    let lastWater = { lat: START_LAT, lon: START_LON };
+    let landCheckBusy = false;
+    let lastLandCheck = 0;
+    let onLand = false;
+
+    // Vereinfachte Gezeiten (kein API-Key)
+    // M2-Periode ~12.42 h; Amplitude regional
+    const TIDE_PERIOD_H = 12.42;
+
+    let wind = {
+      speed: 8,
+      direction: 225,
+      lastUpdate: 0
+    };
+    let sea = {
+      wave: null,
+      swell: null,
+      period: null,
+      lastUpdate: 0
+    };
+    let windFieldOn = false;
+    let windFieldLayer = null;
+    let windGrid = []; // {lat,lon,speed,dir} – aktuell angezeigt
+    let windGridTarget = []; // neues Ziel nach API-Load
+    let windBlend = 1; // 0..1 Übergang
+    let windFieldTimer = null;
+    let windFieldLoadId = 0; // veraltete Loads verwerfen
+    let particles = [];
+    let particleCanvas = null;
+    let particleCtx = null;
+    let particleRaf = 0;
+
+    let keys = {};
+    let touchLeft = false, touchRight = false, touchUp = false, touchDown = false;
+    let lastTime = performance.now();
+    let map, boatMarker, boatIcon;
+    let ships = new Map();
+    let aisSocket = null;
+    let aisKey = localStorage.getItem('sailremote_ais_key') || '';
+    let followBoat = true;
+    let harboursEnabled = true;
+    let harbourLayer = null;
+    let harbourCache = new Map();
+    let harbourFetchTimer = null;
+    let lastHarbourQuery = '';
+
+    // ===================== MAP =====================
+    // Feste Zoomstufen (Spiel-Feeling, stabiles Windraster)
+    const ZOOM_LEVELS = [2, 4, 6, 9, 12, 14];
+    const ZOOM_LABELS = ['Welt', 'Ozean', 'Region', 'Küste', 'Lokal', 'Hafen'];
+    let zoomSnapping = false;
+
+    function nearestZoomLevel(z) {
+      let best = ZOOM_LEVELS[0];
+      let bestD = Math.abs(z - best);
+      for (const level of ZOOM_LEVELS) {
+        const d = Math.abs(z - level);
+        if (d < bestD) { bestD = d; best = level; }
+      }
+      return best;
+    }
+
+    function zoomLevelIndex(z) {
+      const n = nearestZoomLevel(z);
+      return ZOOM_LEVELS.indexOf(n);
+    }
+
+    function setZoomLevel(idx, center) {
+      if (!map) return;
+      const i = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, idx));
+      const z = ZOOM_LEVELS[i];
+      zoomSnapping = true;
+      const c = center || map.getCenter();
+      map.setView(c, z, { animate: true });
+      showStatus('Zoom: ' + ZOOM_LABELS[i] + ' (' + z + ')');
+      setTimeout(() => {
+        zoomSnapping = false;
+        if (typeof windFieldOn !== 'undefined' && windFieldOn) {
+          lastWindBoundsKey = '';
+          lastWindZoom = null;
+          loadWindField();
+        }
+        if (typeof waveFieldOn !== 'undefined' && waveFieldOn) {
+          loadWaveField();
+        }
+      }, 320);
+    }
+
+    function zoomInFixed() {
+      const i = zoomLevelIndex(map.getZoom());
+      setZoomLevel(i + 1);
+    }
+
+    function zoomOutFixed() {
+      const i = zoomLevelIndex(map.getZoom());
+      setZoomLevel(i - 1);
+    }
+
+    function snapZoomToFixed() {
+      if (!map || zoomSnapping) return;
+      const z = map.getZoom();
+      const target = nearestZoomLevel(z);
+      if (Math.abs(z - target) > 0.05) {
+        zoomSnapping = true;
+        map.setZoom(target);
+        const i = ZOOM_LEVELS.indexOf(target);
+        if (i >= 0) showStatus('Zoom: ' + ZOOM_LABELS[i]);
+        setTimeout(() => { zoomSnapping = false; }, 300);
+      }
+    }
+
+    function initMap() {
+      map = L.map('map', {
+        zoomControl: false,
+        attributionControl: true,
+        worldCopyJump: true,
+        minZoom: ZOOM_LEVELS[0],
+        maxZoom: ZOOM_LEVELS[ZOOM_LEVELS.length - 1],
+        zoomSnap: 0, // wir rasten selbst ein
+        zoomDelta: 1
+      }).setView([boat.lat, boat.lon], 9); // Stufe „Küste“
+
+      const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        attribution: '© OpenStreetMap'
+      });
+
+      const seamark = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        attribution: '© OpenSeaMap (Seezeichen, Lichter, Tonnen)'
+      });
+
+      osm.addTo(map);
+      seamark.addTo(map);
+
+      harbourLayer = L.layerGroup().addTo(map);
+      windFieldLayer = L.layerGroup();
+      waveFieldLayer = L.layerGroup();
+
+      L.control.layers(
+        { 'OpenStreetMap': osm },
+        {
+          'OpenSeaMap Seezeichen': seamark,
+          'Häfen': harbourLayer,
+          'Windfeld (Fahnen)': windFieldLayer
+        },
+        { position: 'topright', collapsed: true }
+      ).addTo(map);
+
+      map.on('moveend', () => {
+        scheduleHarbourLoad();
+        if (windFieldOn) scheduleWindField();
+        if (waveFieldOn) loadWaveField();
+      });
+      map.on('zoomend', () => {
+        snapZoomToFixed();
+        scheduleHarbourLoad();
+        if (windFieldOn) scheduleWindField();
+        if (waveFieldOn) loadWaveField();
+      });
+      map.on('overlayadd', (e) => {
+        if (e.layer === windFieldLayer && !windFieldOn) setWindField(true);
+      });
+      map.on('overlayremove', (e) => {
+        if (e.layer === windFieldLayer && windFieldOn) setWindField(false);
+      });
+
+      // Boat icon
+      boatIcon = L.divIcon({
+        className: '',
+        html: `<div id="boat-icon" style="
+          width: 28px; height: 28px;
+          display: flex; align-items: center; justify-content: center;
+          transform: rotate(90deg);
+          font-size: 22px;
+          filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8));
+        ">⛵</div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
+      });
+
+      boatMarker = L.marker([boat.lat, boat.lon], {
+        icon: boatIcon,
+        zIndexOffset: 1000
+      }).addTo(map);
+
+      // Zoom +/- nur feste Stufen
+      const ZoomFixed = L.Control.extend({
+        options: { position: 'bottomright' },
+        onAdd: function () {
+          const div = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+          const plus = L.DomUtil.create('a', '', div);
+          plus.href = '#';
+          plus.title = 'Zoom +';
+          plus.innerHTML = '+';
+          plus.style.cssText = 'width:30px;height:30px;line-height:30px;font-size:18px;text-align:center;display:block;background:#fff;color:#333;text-decoration:none;';
+          const minus = L.DomUtil.create('a', '', div);
+          minus.href = '#';
+          minus.title = 'Zoom −';
+          minus.innerHTML = '−';
+          minus.style.cssText = 'width:30px;height:30px;line-height:30px;font-size:18px;text-align:center;display:block;background:#fff;color:#333;text-decoration:none;border-top:1px solid #ccc;';
+          L.DomEvent.on(plus, 'click', L.DomEvent.stop).on(plus, 'click', zoomInFixed);
+          L.DomEvent.on(minus, 'click', L.DomEvent.stop).on(minus, 'click', zoomOutFixed);
+          return div;
+        }
+      });
+      new ZoomFixed().addTo(map);
+
+      map.on('dragstart', () => { followBoat = false; });
+    }
+
+    function updateBoatMarker() {
+      boatMarker.setLatLng([boat.lat, boat.lon]);
+      const el = document.getElementById('boat-icon');
+      if (el) {
+        el.style.transform = `rotate(${boat.heading}deg)`;
+      }
+      if (followBoat) {
+        map.panTo([boat.lat, boat.lon], { animate: true, duration: 0.4 });
+      }
+    }
+
+    // ===================== WEATHER =====================
+    async function fetchWind() {
+      try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${boat.lat.toFixed(4)}&longitude=${boat.lon.toFixed(4)}&current=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.current) {
+          wind.speed = data.current.wind_speed_10m || wind.speed;
+          wind.direction = data.current.wind_direction_10m || wind.direction;
+          wind.lastUpdate = Date.now();
+          updateWindUI();
+        }
+      } catch (e) {
+        console.warn('Wind fetch failed', e);
+      }
+      fetchMarine();
+    }
+
+    async function fetchMarine() {
+      try {
+        const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${boat.lat.toFixed(4)}&longitude=${boat.lon.toFixed(4)}&current=wave_height,wave_period,swell_wave_height,swell_wave_direction,wind_wave_height`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.current) {
+          sea.wave = data.current.wave_height;
+          sea.swell = data.current.swell_wave_height;
+          sea.period = data.current.wave_period;
+          sea.lastUpdate = Date.now();
+          const w = document.getElementById('wave');
+          const s = document.getElementById('swell');
+          if (w) w.textContent = sea.wave == null ? '–' : Number(sea.wave).toFixed(1);
+          if (s) s.textContent = sea.swell == null ? '–' : Number(sea.swell).toFixed(1);
+        }
+      } catch (e) {
+        console.warn('Marine fetch failed', e);
+      }
+    }
+
+    function updateWindUI() {
+      document.getElementById('wind-speed').textContent = wind.speed.toFixed(1);
+      document.getElementById('wind-dir').textContent = Math.round(wind.direction) + '°';
+      const toDir = (wind.direction + 180) % 360;
+      document.getElementById('wind-svg').style.transform = `rotate(${toDir}deg)`;
+    }
+
+    // ---------- Windfeld: statische Windfahnen + leichte Farbfläche ----------
+    function windColor(kn, alpha = 1) {
+      let r, g, b;
+      if (kn < 5) { r = 80; g = 60; b = 180; }
+      else if (kn < 10) { r = 40; g = 120; b = 220; }
+      else if (kn < 15) { r = 30; g = 180; b = 160; }
+      else if (kn < 20) { r = 60; g = 200; b = 80; }
+      else if (kn < 28) { r = 200; g = 210; b = 40; }
+      else if (kn < 38) { r = 240; g = 140; b = 30; }
+      else { r = 220; g = 50; b = 50; }
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+
+
+    function waveColor(h, alpha = 1) {
+      // m: 0 grün → 2 gelb → 4 orange → 6+ rot/lila
+      let r, g, b;
+      if (h < 1) { r = 80; g = 200; b = 255; }
+      else if (h < 2) { r = 50; g = 220; b = 120; }
+      else if (h < 3.5) { r = 240; g = 200; b = 40; }
+      else if (h < 5) { r = 255; g = 120; b = 40; }
+      else if (h < 7) { r = 240; g = 50; b = 50; }
+      else { r = 180; g = 40; b = 200; }
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+
+    async function fetchRemoteWaveGrid() {
+      if (!WAVE_GRID_URL) return null;
+      if (waveGridRemote && Date.now() - waveGridRemoteAt < 20 * 60 * 1000) {
+        return waveGridRemote;
+      }
+      try {
+        const sep = WAVE_GRID_URL.indexOf('?') >= 0 ? '&' : '?';
+        const res = await fetch(WAVE_GRID_URL + sep + 't=' + Date.now());
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (!data.points || !data.points.length) throw new Error('keine points');
+        waveGridRemote = data;
+        waveGridRemoteAt = Date.now();
+        return data;
+      } catch (e) {
+        console.warn('Wellen-Grid fehlgeschlagen:', e);
+        return waveGridRemote;
+      }
+    }
+
+    function makeWaveGridPoints() {
+      const z = nearestZoomLevel(map.getZoom());
+      let cols, rows;
+      if (z <= 2) { cols = 20; rows = 14; }
+      else if (z <= 4) { cols = 16; rows = 12; }
+      else if (z <= 6) { cols = 12; rows = 10; }
+      else { cols = 10; rows = 8; }
+      const size = map.getSize();
+      const pts = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const x = (c + 0.5) / cols * size.x;
+          const y = (r + 0.5) / rows * size.y;
+          const ll = map.containerPointToLatLng([x, y]);
+          let lat = ll.lat, lon = ll.lng;
+          if (lat > 85) lat = 85;
+          if (lat < -85) lat = -85;
+          pts.push({ lat, lon });
+        }
+      }
+      return pts;
+    }
+
+    function sampleWaveGrid(lat, lon, points) {
+      let sw = 0, sh = 0, sx = 0, sy = 0, sp = 0, ss = 0;
+      for (const g of points) {
+        if (g.height == null || !Number.isFinite(g.height)) continue;
+        const dlat = g.lat - lat;
+        const dlon = (g.lon - lon) * Math.cos(lat * Math.PI / 180);
+        const d2 = dlat * dlat + dlon * dlon + 1e-6;
+        const w = 1 / (d2 * d2);
+        sw += w;
+        sh += g.height * w;
+        if (g.period != null) sp += g.period * w;
+        if (g.swell != null) ss += g.swell * w;
+        const dir = g.dir != null ? g.dir : 0;
+        const toRad = (dir * Math.PI) / 180; // Wellenrichtung = wohin die See läuft
+        sx += Math.sin(toRad) * w;
+        sy += Math.cos(toRad) * w;
+      }
+      if (sw < 1e-12) return null;
+      const dir = (Math.atan2(sx / sw, sy / sw) * 180 / Math.PI + 360) % 360;
+      return {
+        height: sh / sw,
+        dir,
+        period: sp / sw,
+        swell: ss / sw
+      };
+    }
+
+    async function loadWaveField() {
+      if (!waveFieldOn || !map) return;
+      const remote = await fetchRemoteWaveGrid();
+      if (!waveFieldLayer) return;
+      waveFieldLayer.clearLayers();
+      if (!map.hasLayer(waveFieldLayer)) waveFieldLayer.addTo(map);
+
+      const pts = makeWaveGridPoints();
+      let n = 0, hMin = 99, hMax = 0;
+      for (const p of pts) {
+        let wdat = null;
+        if (remote && remote.points) wdat = sampleWaveGrid(p.lat, p.lon, remote.points);
+        if (!wdat || wdat.height == null || wdat.height < 0.15) continue;
+        n++;
+        hMin = Math.min(hMin, wdat.height);
+        hMax = Math.max(hMax, wdat.height);
+        const col = waveColor(wdat.height, 1);
+        const len = 10 + Math.min(16, wdat.height * 3);
+        const rot = (wdat.dir - 90);
+        const icon = L.divIcon({
+          className: 'wave-barb-icon',
+          html: `<div style="width:30px;height:30px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+            <div style="width:${len}px;height:10px;transform:rotate(${rot}deg);transform-origin:center;display:flex;align-items:center;">
+              <div style="flex:1;height:3px;background:${col};box-shadow:0 0 0 1px rgba(0,0,0,.4);"></div>
+              <div style="width:0;height:0;border-top:5px solid transparent;border-bottom:5px solid transparent;border-left:8px solid ${col};"></div>
+            </div>
+            <div style="font-size:9px;font-weight:700;color:#fff;text-shadow:0 0 3px #000;">${wdat.height.toFixed(1)}</div>
+          </div>`,
+          iconSize: [30, 30],
+          iconAnchor: [15, 15]
+        });
+        L.marker([p.lat, p.lon], { icon, interactive: true, keyboard: false, zIndexOffset: 700 })
+          .bindTooltip(
+            wdat.height.toFixed(1) + ' m · ' +
+            (wdat.period ? wdat.period.toFixed(0) + ' s · ' : '') +
+            Math.round(wdat.dir) + '°',
+            { direction: 'top', opacity: 0.95 }
+          )
+          .addTo(waveFieldLayer);
+      }
+      const age = remote && remote.updated
+        ? ' · Stand ' + new Date(remote.updated).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+        : '';
+      if (n) {
+        showStatus('Wellen · ' + hMin.toFixed(1) + '–' + hMax.toFixed(1) + ' m' + age);
+      } else {
+        showStatus('Wellen · keine Daten (Grid fehlt oder Land)' + age);
+      }
+    }
+
+    function setWaveField(on) {
+      waveFieldOn = on;
+      const btn = document.getElementById('wavefield-btn');
+      if (btn) btn.classList.toggle('on', on);
+      if (on) {
+        if (!map.hasLayer(waveFieldLayer)) waveFieldLayer.addTo(map);
+        loadWaveField();
+        showStatus('Wellen an');
+      } else {
+        if (map.hasLayer(waveFieldLayer)) map.removeLayer(waveFieldLayer);
+        if (waveFieldLayer) waveFieldLayer.clearLayers();
+        showStatus('Wellen aus');
+      }
+    }
+
+
+    function setWindField(on) {
+      windFieldOn = on;
+      const btn = document.getElementById('windfield-btn');
+      const canvas = document.getElementById('wind-canvas');
+      if (btn) btn.classList.toggle('on', on);
+      if (on) {
+        if (!map.hasLayer(windFieldLayer)) windFieldLayer.addTo(map);
+        lastWindBoundsKey = '';
+        lastWindZoom = null;
+        loadWindField();
+        showStatus('Windfahnen an');
+      } else {
+        if (map.hasLayer(windFieldLayer)) map.removeLayer(windFieldLayer);
+        windFieldLayer.clearLayers();
+        lastWindZoom = null;
+        if (typeof stopWindStreams === 'function') stopWindStreams();
+        showStatus('Windfeld aus');
+      }
+    }
+
+    let lastWindBoundsKey = '';
+    let lastWindZoom = null;
+    function scheduleWindField() {
+      clearTimeout(windFieldTimer);
+      windFieldTimer = setTimeout(() => {
+        if (!windFieldOn || !map) return;
+        const b = map.getBounds();
+        const z = nearestZoomLevel(map.getZoom());
+        // Zoom geändert → immer neu
+        if (lastWindZoom !== null && lastWindZoom !== z) {
+          lastWindZoom = z;
+          lastWindBoundsKey = '';
+          loadWindField();
+          return;
+        }
+        const key = [
+          b.getSouth().toFixed(2),
+          b.getNorth().toFixed(2),
+          b.getWest().toFixed(2),
+          b.getEast().toFixed(2),
+          z
+        ].join('|');
+        if (lastWindBoundsKey) {
+          const p = lastWindBoundsKey.split('|').map(Number);
+          const cur = [b.getSouth(), b.getNorth(), b.getWest(), b.getEast()];
+          const similar = p.length >= 4 &&
+            Math.abs(p[0] - cur[0]) < 0.12 * Math.max(0.01, cur[1] - cur[0]) &&
+            Math.abs(p[1] - cur[1]) < 0.12 * Math.max(0.01, cur[1] - cur[0]) &&
+            Math.abs(p[2] - cur[2]) < 0.12 * Math.max(0.01, cur[3] - cur[2]) &&
+            Math.abs(p[3] - cur[3]) < 0.12 * Math.max(0.01, cur[3] - cur[2]);
+          if (similar && windGrid.length) return;
+        }
+        lastWindBoundsKey = key;
+        lastWindZoom = z;
+        loadWindField();
+      }, 180);
+    }
+
+    function makeGridPoints() {
+      // Bildschirm-Raster – Weltkarte sehr dicht (Planung)
+      const z = nearestZoomLevel(map.getZoom());
+      let cols, rows;
+      if (z <= 2) { cols = 24; rows = 16; }       // Welt ~384 Fahnen
+      else if (z <= 4) { cols = 20; rows = 14; }  // Ozean
+      else if (z <= 6) { cols = 16; rows = 12; }  // Region
+      else if (z <= 9) { cols = 12; rows = 10; }  // Küste
+      else { cols = 10; rows = 9; }               // Lokal / Hafen
+      const size = map.getSize();
+      const pts = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const x = (c + 0.5) / cols * size.x;
+          const y = (r + 0.5) / rows * size.y;
+          const ll = map.containerPointToLatLng([x, y]);
+          let lat = ll.lat;
+          let lon = ll.lng;
+          if (lat > 85) lat = 85;
+          if (lat < -85) lat = -85;
+          pts.push({ lat, lon });
+        }
+      }
+      return pts;
+    }
+
+
+
+
+    /**
+     * Großräumiges Windfeld (Passat / Westwinde / Polar) + Wirbel.
+     * Immer räumlich unterschiedlich – nie überall parallel.
+     * Wird mit echten Open-Meteo-Punkten kalibriert, wenn verfügbar.
+     */
+    function climateWind(lat, lon) {
+      const absLat = Math.abs(lat);
+      let dir, speed;
+      if (absLat < 28) {
+        dir = (lat >= 0 ? 55 : 125) + 15 * Math.sin(lon * Math.PI / 60);
+        speed = 11 + 5 * Math.sin((lon + 20) * Math.PI / 90);
+      } else if (absLat < 60) {
+        dir = 255 + 25 * Math.sin(lon * Math.PI / 45) + 12 * Math.sin(lat * Math.PI / 30);
+        speed = 14 + 12 * Math.sin((lon * 0.7 + lat) * Math.PI / 50);
+      } else {
+        dir = 95 + 35 * Math.sin(lon * Math.PI / 40);
+        speed = 9 + 6 * Math.cos(lat * Math.PI / 40);
+      }
+      // Sanfte Wirbel (geringe Stärke – keine Richtungs-Sprünge)
+      const centers = [[55, 5], [45, -40], [35, 140], [-40, 20], [20, -60]];
+      for (const [cy, cx] of centers) {
+        const dx = lon - cx;
+        const dy = lat - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy) + 0.01;
+        const influence = Math.max(0, 1 - dist / 35);
+        if (influence <= 0.05) continue;
+        const w = influence * influence * 0.45; // weicher
+        const tang = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+        const rad = degToRad(dir);
+        const trad = degToRad(tang);
+        const sx = Math.sin(rad) * (1 - w) + Math.sin(trad) * w;
+        const sy = Math.cos(rad) * (1 - w) + Math.cos(trad) * w;
+        dir = (Math.atan2(sx, sy) * 180 / Math.PI + 360) % 360;
+        speed += influence * 6;
+      }
+      // an echten Wind am Boot anbinden (Stärke)
+      const scale = Math.max(0.4, Math.min(2.2, (wind.speed || 10) / 14));
+      speed = Math.max(2, Math.min(55, speed * scale));
+      return { speed, dir: (dir + 360) % 360 };
+    }
+
+    async function fetchOneWind(lat, lon) {
+      try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(2)}&longitude=${lon.toFixed(2)}&current=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.error || !data.current) return null;
+        return {
+          lat, lon,
+          speed: Number(data.current.wind_speed_10m),
+          dir: Number(data.current.wind_direction_10m)
+        };
+      } catch (_) {
+        return null;
+      }
+    }
+
+    async function fetchRemoteWindGrid() {
+      if (!WIND_GRID_URL) return null;
+      if (windGridRemote && Date.now() - windGridRemoteAt < 20 * 60 * 1000) {
+        return windGridRemote;
+      }
+      try {
+        const sep = WIND_GRID_URL.indexOf('?') >= 0 ? '&' : '?';
+        const res = await fetch(WIND_GRID_URL + sep + 't=' + Date.now());
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (!data.points || !data.points.length) throw new Error('keine points');
+        windGridRemote = data;
+        windGridRemoteAt = Date.now();
+        return data;
+      } catch (e) {
+        console.warn('Wind-Grid URL fehlgeschlagen:', e);
+        return windGridRemote;
+      }
+    }
+
+    function sampleRemoteGrid(lat, lon, points) {
+      let sw = 0, ss = 0, sx = 0, sy = 0;
+      for (const g of points) {
+        if (g.speed == null || !Number.isFinite(g.speed)) continue;
+        // Anzeige: stärkerer Wert aus Mittelwind und Böe (Stürme sichtbarer)
+        let spd = g.speed;
+        if (g.gust != null && Number.isFinite(g.gust) && g.gust > spd) {
+          spd = g.speed * 0.35 + g.gust * 0.65;
+        }
+        const dlat = g.lat - lat;
+        const dlon = (g.lon - lon) * Math.cos(lat * Math.PI / 180);
+        const d2 = dlat * dlat + dlon * dlon + 1e-6;
+        const w = 1 / (d2 * d2);
+        sw += w;
+        ss += spd * w;
+        const toRad = ((g.dir + 180) % 360) * Math.PI / 180;
+        sx += Math.sin(toRad) * w;
+        sy += Math.cos(toRad) * w;
+      }
+      if (sw < 1e-12) return null;
+      const toDeg = (Math.atan2(sx / sw, sy / sw) * 180 / Math.PI + 360) % 360;
+      return { speed: ss / sw, dir: (toDeg + 180) % 360 };
+    }
+
+    async function loadWindField() {
+      if (!windFieldOn || !map) return;
+      const pts = makeGridPoints();
+      const remote = await fetchRemoteWindGrid();
+      let source = 'Modell';
+
+      windGrid = pts.map(p => {
+        if (remote && remote.points) {
+          const s = sampleRemoteGrid(p.lat, p.lon, remote.points);
+          if (s) {
+            source = 'Grid';
+            return { lat: p.lat, lon: p.lon, speed: s.speed, dir: s.dir };
+          }
+        }
+        const c = climateWind(p.lat, p.lon);
+        return { lat: p.lat, lon: p.lon, speed: c.speed, dir: c.dir };
+      });
+      windGridTarget = windGrid.map(g => ({ ...g }));
+      windBlend = 1;
+
+      const speeds = windGrid.map(g => g.speed);
+      const sMin = Math.min(...speeds);
+      const sMax = Math.max(...speeds);
+      const z = nearestZoomLevel(map.getZoom());
+      const age = remote && remote.updated
+        ? ' · Stand ' + new Date(remote.updated).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+        : '';
+      showStatus('Windfahnen · ' + source + ' · ' + sMin.toFixed(0) + '–' + sMax.toFixed(0) +
+        ' kn · Boot ' + wind.speed.toFixed(0) + ' kn' + age +
+        (z <= 6 ? ' · Strömung an' : ''));
+      drawStaticWindBarbs();
+      if (z <= 6) startWindStreams();
+      else stopWindStreams();
+    }
+
+    function stopWindStreams() {
+      if (particleRaf) {
+        cancelAnimationFrame(particleRaf);
+        particleRaf = 0;
+      }
+      const canvas = document.getElementById('wind-canvas');
+      if (canvas && particleCtx) {
+        particleCtx.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
+        canvas.style.display = 'none';
+      }
+    }
+
+    function startWindStreams() {
+      stopWindStreams();
+      if (!windFieldOn || !map || !windGrid.length) return;
+      const canvas = document.getElementById('wind-canvas');
+      if (!canvas) return;
+      resizeWindCanvas();
+      canvas.style.display = 'block';
+      canvas.style.opacity = '0.95';
+      const w = canvas.width;
+      const h = canvas.height;
+      if (!particleCtx) return;
+
+      // Trail-Buffer
+      if (!trailCanvas) {
+        trailCanvas = document.createElement('canvas');
+        trailCtx = trailCanvas.getContext('2d');
+      }
+      trailCanvas.width = w;
+      trailCanvas.height = h;
+      trailCtx.clearRect(0, 0, w, h);
+
+      // Mehr Partikel, längere Spuren
+      const n = Math.min(1400, Math.max(700, Math.floor((w * h) / 700)));
+      particles = [];
+      for (let i = 0; i < n; i++) {
+        particles.push({
+          x: Math.random() * w,
+          y: Math.random() * h,
+          age: Math.random() * 80,
+          maxAge: 70 + Math.random() * 90
+        });
+      }
+
+      const step = () => {
+        if (!windFieldOn || !map) return;
+        const z = nearestZoomLevel(map.getZoom());
+        if (z > 6) {
+          stopWindStreams();
+          return;
+        }
+        const ctx = particleCtx;
+        if (!ctx || !trailCtx) {
+          particleRaf = requestAnimationFrame(step);
+          return;
+        }
+        // langsamer ausfaden = längere, deutlichere Spuren
+        trailCtx.globalCompositeOperation = 'destination-out';
+        trailCtx.fillStyle = 'rgba(0,0,0,0.025)';
+        trailCtx.fillRect(0, 0, trailCanvas.width, trailCanvas.height);
+        trailCtx.globalCompositeOperation = 'source-over';
+
+        for (const p of particles) {
+          const ll = map.containerPointToLatLng([p.x, p.y]);
+          const wd = sampleWind(ll.lat, ll.lng);
+          const to = ((wd.dir + 180) % 360) * Math.PI / 180;
+          const v = 0.55 + wd.speed * 0.2;
+          const ox = p.x, oy = p.y;
+          p.x += Math.sin(to) * v;
+          p.y -= Math.cos(to) * v;
+          p.age += 1;
+          if (p.x < -5 || p.x > w + 5 || p.y < -5 || p.y > h + 5 || p.age > p.maxAge) {
+            p.x = Math.random() * w;
+            p.y = Math.random() * h;
+            p.age = 0;
+            p.maxAge = 70 + Math.random() * 90;
+            continue;
+          }
+          const tAge = p.age / p.maxAge;
+          const fade = tAge < 0.08 ? tAge / 0.08 : tAge > 0.85 ? (1 - tAge) / 0.15 : 1;
+          const a = Math.max(0, Math.min(1, fade));
+          // weiße Unterlinie + farbige Hauptspur
+          const lw = 1.8 + Math.min(2.2, wd.speed * 0.06);
+          trailCtx.lineCap = 'round';
+          trailCtx.strokeStyle = 'rgba(255,255,255,' + (0.35 * a) + ')';
+          trailCtx.lineWidth = lw + 1.2;
+          trailCtx.beginPath();
+          trailCtx.moveTo(ox, oy);
+          trailCtx.lineTo(p.x, p.y);
+          trailCtx.stroke();
+          trailCtx.strokeStyle = windColor(wd.speed, 0.85 * a);
+          trailCtx.lineWidth = lw;
+          trailCtx.beginPath();
+          trailCtx.moveTo(ox, oy);
+          trailCtx.lineTo(p.x, p.y);
+          trailCtx.stroke();
+        }
+        ctx.clearRect(0, 0, w, h);
+        ctx.globalAlpha = 1;
+        ctx.drawImage(trailCanvas, 0, 0);
+        particleRaf = requestAnimationFrame(step);
+      };
+      particleRaf = requestAnimationFrame(step);
+    }
+
+    /** Statische Windfahnen (Pfeile) – keine Animation */
+    function drawStaticWindBarbs() {
+      if (!windFieldLayer || !windFieldOn || !windGrid.length) return;
+      if (!map.hasLayer(windFieldLayer)) windFieldLayer.addTo(map);
+      windFieldLayer.clearLayers();
+      for (const g of windGrid) {
+        const to = (g.dir + 180) % 360;
+        const col = windColor(g.speed, 1);
+        const z = nearestZoomLevel(map.getZoom());
+        const dense = z <= 4;
+        const len = dense ? (10 + Math.min(8, g.speed * 0.3)) : (14 + Math.min(12, g.speed * 0.45));
+        const box = dense ? 22 : 28;
+        const icon = L.divIcon({
+          className: 'wind-barb-icon',
+          html: `<div style="
+            width:${box}px;height:${box}px;
+            display:flex;flex-direction:column;align-items:center;justify-content:center;
+            pointer-events:auto;
+          ">
+            <div style="
+              width:${len}px;height:10px;
+              transform:rotate(${to - 90}deg);
+              transform-origin:center center;
+              display:flex;align-items:center;
+            ">
+              <div style="flex:1;height:2px;background:${col};
+                box-shadow:0 0 0 1px rgba(0,0,0,.5);"></div>
+              <div style="width:0;height:0;
+                border-top:4px solid transparent;
+                border-bottom:4px solid transparent;
+                border-left:7px solid ${col};
+                filter:drop-shadow(0 0 1px #000);"></div>
+            </div>
+            <div style="
+              margin-top:0;font-size:8px;font-weight:700;
+              color:#fff;text-shadow:0 0 3px #000,0 1px 2px #000;
+              line-height:1;
+            ">${Math.round(g.speed)}</div>
+          </div>`,
+          iconSize: [box, box],
+          iconAnchor: [box / 2, box / 2]
+        });
+        L.marker([g.lat, g.lon], {
+          icon,
+          interactive: !dense,
+          keyboard: false,
+          zIndexOffset: 800
+        }).bindTooltip(
+          Math.round(g.speed) + ' kn · aus ' + Math.round(g.dir) + '°',
+          { direction: 'top', opacity: 0.95 }
+        ).addTo(windFieldLayer);
+      }
+    }
+
+    function drawStaticHeatOverlay() {
+      // deaktiviert – nur Windfahnen
+      const canvas = document.getElementById('wind-canvas');
+      if (canvas && particleCtx) {
+        particleCtx.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
+      }
+      if (canvas) canvas.style.display = 'none';
+    }
+
+
+    function stepWindBlend() {
+      if (windBlend >= 1 || !windGridTarget.length) return;
+      windBlend = Math.min(1, windBlend + 0.04);
+      const t = windBlend;
+      // windGrid auf gleiche Länge bringen
+      if (windGrid.length !== windGridTarget.length) {
+        windGrid = windGridTarget.map(g => ({ ...g }));
+        windBlend = 1;
+        windHeatDirty = true;
+        return;
+      }
+      for (let i = 0; i < windGrid.length; i++) {
+        const a = windGrid[i];
+        const b = windGridTarget[i];
+        a.lat = b.lat;
+        a.lon = b.lon;
+        a.speed = a.speed * (1 - t) + b.speed * t;
+        // Richtung über Einheitsvektoren mischen
+        const ar = degToRad(a.dir);
+        const br = degToRad(b.dir);
+        const sx = Math.sin(ar) * (1 - t) + Math.sin(br) * t;
+        const sy = Math.cos(ar) * (1 - t) + Math.cos(br) * t;
+        a.dir = (Math.atan2(sx, sy) * 180 / Math.PI + 360) % 360;
+      }
+      if (windBlend >= 1 || (windBlend * 25) % 1 < 0.05) windHeatDirty = true;
+    }
+
+    let windHeatDirty = true;
+    let heatCanvas = null;
+    let heatCtx = null;
+
+    function resizeWindCanvas() {
+      particleCanvas = document.getElementById('wind-canvas');
+      if (!particleCanvas) return;
+      const r = particleCanvas.parentElement.getBoundingClientRect();
+      const w = r.width, h = r.height;
+      particleCanvas.width = w;
+      particleCanvas.height = h;
+      particleCtx = particleCanvas.getContext('2d');
+      if (!heatCanvas) {
+        heatCanvas = document.createElement('canvas');
+        heatCtx = heatCanvas.getContext('2d');
+      }
+      heatCanvas.width = w;
+      heatCanvas.height = h;
+      if (!trailCanvas) {
+        trailCanvas = document.createElement('canvas');
+        trailCtx = trailCanvas.getContext('2d');
+      }
+      trailCanvas.width = w;
+      trailCanvas.height = h;
+      windHeatDirty = true;
+    }
+
+    let trailCanvas = null;
+    let trailCtx = null;
+
+    // Weiche Interpolation (IDW) – Strömung krümmt sich
+    function sampleWind(lat, lon) {
+      // Kontinuierliches Vektorfeld aus den Windfahnen (IDW)
+      // Partikel folgen denselben Richtungen wie die Pfeile und lenken weich um
+      if (!windGrid.length) {
+        return climateWind(lat, lon);
+      }
+      let sw = 0, ss = 0, sx = 0, sy = 0;
+      let nearest = null, nearestD = 1e9;
+      for (const g of windGrid) {
+        const dlat = g.lat - lat;
+        const dlon = (g.lon - lon) * Math.cos(lat * Math.PI / 180);
+        const d2 = dlat * dlat + dlon * dlon;
+        if (d2 < nearestD) {
+          nearestD = d2;
+          nearest = g;
+        }
+        // sehr nah → fast exakt dieser Pfeil
+        const d = Math.sqrt(d2) + 1e-6;
+        const w = 1 / (d * d * d); // schärfer → klarere "Korridore" zwischen Pfeilen
+        sw += w;
+        ss += g.speed * w;
+        const rad = (g.dir * Math.PI) / 180; // dir = woher, Vektor "wohin" = dir+180
+        const toRad = rad + Math.PI;
+        sx += Math.sin(toRad) * w;
+        sy += Math.cos(toRad) * w;
+      }
+      if (sw < 1e-12 && nearest) {
+        return { speed: nearest.speed, dir: nearest.dir };
+      }
+      const speed = ss / sw;
+      // sx,sy zeigen in Wehrichtung (N=+, E=+)
+      const toDeg = (Math.atan2(sx / sw, sy / sw) * 180 / Math.PI + 360) % 360;
+      const fromDeg = (toDeg + 180) % 360;
+      return { speed, dir: fromDeg };
+    }
+
+    function drawHeatmap() {
+      if (!heatCtx || !map || !windGrid.length) return;
+      const w = heatCanvas.width, h = heatCanvas.height;
+      heatCtx.clearRect(0, 0, w, h);
+      // feineres Abtastgitter für weiche Windy-Farben
+      const step = Math.max(10, Math.floor(Math.min(w, h) / 28));
+      for (let y = step / 2; y < h; y += step) {
+        for (let x = step / 2; x < w; x += step) {
+          const ll = map.containerPointToLatLng([x, y]);
+          const wd = sampleWind(ll.lat, ll.lng);
+          const radius = step * 1.15;
+          const grd = heatCtx.createRadialGradient(x, y, 0, x, y, radius);
+          grd.addColorStop(0, windColor(wd.speed, 0.38));
+          grd.addColorStop(0.55, windColor(wd.speed, 0.12));
+          grd.addColorStop(1, windColor(wd.speed, 0));
+          heatCtx.fillStyle = grd;
+          heatCtx.beginPath();
+          heatCtx.arc(x, y, radius, 0, Math.PI * 2);
+          heatCtx.fill();
+        }
+      }
+      windHeatDirty = false;
+    }
+
+    function particleCount() {
+      const z = map.getZoom();
+      // iPhone: nicht zu viele, aber genug für Windy-Feeling
+      if (z >= 10) return 900;
+      if (z >= 6) return 750;
+      if (z >= 3) return 650;
+      return 500;
+    }
+
+    function spawnParticleGeo() {
+      if (!map) return { lat: boat.lat, lon: boat.lon, age: 0, maxAge: 60 };
+      const b = map.getBounds();
+      return {
+        lat: b.getSouth() + Math.random() * (b.getNorth() - b.getSouth()),
+        lon: b.getWest() + Math.random() * (b.getEast() - b.getWest()),
+        age: Math.random() * 80,
+        maxAge: 55 + Math.random() * 50
+      };
+    }
+
+    function startParticles() {
+      stopParticles();
+      resizeWindCanvas();
+      const w = particleCanvas.width, h = particleCanvas.height;
+      if (!trailCanvas) {
+        trailCanvas = document.createElement('canvas');
+        trailCtx = trailCanvas.getContext('2d');
+      }
+      trailCanvas.width = w;
+      trailCanvas.height = h;
+      trailCtx.clearRect(0, 0, w, h);
+
+      particles = [];
+      const n = particleCount();
+      for (let i = 0; i < n; i++) particles.push(spawnParticleGeo());
+
+      const step = () => {
+        if (!windFieldOn) return;
+        const ctx = particleCtx;
+        if (!ctx || !map || !trailCtx) {
+          particleRaf = requestAnimationFrame(step);
+          return;
+        }
+        stepWindBlend();
+        if (windHeatDirty) drawHeatmap();
+
+        // Trails ausfaden
+        trailCtx.globalCompositeOperation = 'destination-out';
+        trailCtx.fillStyle = 'rgba(0,0,0,0.045)';
+        trailCtx.fillRect(0, 0, trailCanvas.width, trailCanvas.height);
+        trailCtx.globalCompositeOperation = 'source-over';
+
+        const bounds = map.getBounds();
+        const pad = 0.02 * (bounds.getNorth() - bounds.getSouth());
+
+        for (const p of particles) {
+          const wdat = sampleWind(p.lat, p.lon);
+          // Wind weht NACH (dir+180), Bewegung in Grad
+          const toRad = degToRad((wdat.dir + 180) % 360);
+          // ~0.015° pro Frame bei 20 kn, skaliert
+          const stepDeg = (0.008 + wdat.speed * 0.0012) * (bounds.getNorth() - bounds.getSouth()) / 20;
+          const oLat = p.lat, oLon = p.lon;
+          p.lat += Math.cos(toRad) * stepDeg;
+          p.lon += Math.sin(toRad) * stepDeg / Math.max(0.2, Math.cos(degToRad(p.lat)));
+          p.age += 1;
+
+          const out = p.lat < bounds.getSouth() - pad || p.lat > bounds.getNorth() + pad ||
+            p.lon < bounds.getWest() - pad || p.lon > bounds.getEast() + pad ||
+            p.age > p.maxAge;
+          if (out) {
+            const np = spawnParticleGeo();
+            p.lat = np.lat; p.lon = np.lon; p.age = 0; p.maxAge = np.maxAge;
+            continue;
+          }
+
+          const aPt = map.latLngToContainerPoint([oLat, oLon]);
+          const bPt = map.latLngToContainerPoint([p.lat, p.lon]);
+          const t = p.age / p.maxAge;
+          const fade = t < 0.12 ? t / 0.12 : t > 0.75 ? (1 - t) / 0.25 : 1;
+          const a = Math.max(0, Math.min(1, fade));
+
+          trailCtx.strokeStyle = 'rgba(255,255,255,' + (0.22 * a) + ')';
+          trailCtx.lineWidth = 1.0;
+          trailCtx.lineCap = 'round';
+          trailCtx.beginPath();
+          trailCtx.moveTo(aPt.x, aPt.y);
+          trailCtx.lineTo(bPt.x, bPt.y);
+          trailCtx.stroke();
+
+          trailCtx.strokeStyle = windColor(wdat.speed, 0.55 * a);
+          trailCtx.lineWidth = 1.6;
+          trailCtx.beginPath();
+          trailCtx.moveTo(aPt.x, aPt.y);
+          trailCtx.lineTo(bPt.x, bPt.y);
+          trailCtx.stroke();
+        }
+
+        ctx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+        if (heatCanvas) {
+          ctx.globalAlpha = 0.42;
+          ctx.drawImage(heatCanvas, 0, 0);
+        }
+        ctx.globalAlpha = 0.92;
+        ctx.drawImage(trailCanvas, 0, 0);
+        ctx.globalAlpha = 1;
+
+        particleRaf = requestAnimationFrame(step);
+      };
+      particleRaf = requestAnimationFrame(step);
+      window.addEventListener('resize', resizeWindCanvas);
+      // Beim Verschieben: nur Heat neu, Trails kurz leeren (kein Partikel-Sprung)
+      map.on('move', () => {
+        windHeatDirty = true;
+        if (trailCtx && trailCanvas) {
+          trailCtx.clearRect(0, 0, trailCanvas.width, trailCanvas.height);
+        }
+      });
+      map.on('zoomend', () => {
+        windHeatDirty = true;
+        const need = particleCount();
+        while (particles.length < need) particles.push(spawnParticleGeo());
+        while (particles.length > need) particles.pop();
+      });
+    }
+
+    function stopParticles() {
+      if (particleRaf) cancelAnimationFrame(particleRaf);
+      particleRaf = 0;
+      if (particleCtx && particleCanvas) {
+        particleCtx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+      }
+      if (trailCtx && trailCanvas) {
+        trailCtx.clearRect(0, 0, trailCanvas.width, trailCanvas.height);
+      }
+    }
+
+    // ===================== PHYSICS =====================
+    function degToRad(d) { return d * Math.PI / 180; }
+    function normalizeAngle(a) {
+      a = a % 360;
+      if (a < 0) a += 360;
+      return a;
+    }
+
+    // True Wind Angle: 0° = Wind von vorn, 180° = Wind von hinten
+    function getTrueWindAngle() {
+      // wind.direction = woher der Wind kommt
+      // boat.heading = wohin das Boot zeigt
+      let twa = normalizeAngle(wind.direction - boat.heading);
+      if (twa > 180) twa = 360 - twa; // immer 0..180
+      return twa;
+    }
+
+    /**
+     * Vereinfachte Polar-Kurve einer typischen Kreuzer-Yacht.
+     * Gibt zurück, wie gut das Boot bei diesem Windwinkel laufen kann (0..1).
+     */
+    function polarFactor(twa) {
+      // twa: 0 = im Wind, 90 = raumschots, 180 = vor dem Wind
+      if (twa < 28) {
+        // fast im Wind → kaum Vortrieb
+        return 0.05 + (twa / 28) * 0.15;
+      }
+      if (twa < 50) {
+        // hart am Wind
+        return 0.35 + ((twa - 28) / 22) * 0.35;
+      }
+      if (twa < 90) {
+        // raumer Wind bis raumschots – bester Bereich
+        return 0.70 + ((twa - 50) / 40) * 0.30;
+      }
+      if (twa < 130) {
+        // raumschots bis achterlich
+        return 1.00 - ((twa - 90) / 40) * 0.15;
+      }
+      if (twa < 160) {
+        // achterlicher Wind
+        return 0.85 - ((twa - 130) / 30) * 0.25;
+      }
+      // vor dem Wind
+      return 0.55 - ((twa - 160) / 20) * 0.15;
+    }
+
+    function updatePhysics(dt) {
+      // === Ganz einfache Test-Steuerung ===
+      // ← → drehen | ↑ vor | ↓ zurück  (sichtbar auf der Karte)
+
+      if (keys['ArrowLeft'] || keys['a'] || keys['A'] || touchLeft) {
+        boat.heading = normalizeAngle(boat.heading - TURN_DEG_PER_SEC * dt);
+      }
+      if (keys['ArrowRight'] || keys['d'] || keys['D'] || touchRight) {
+        boat.heading = normalizeAngle(boat.heading + TURN_DEG_PER_SEC * dt);
+      }
+
+      let move = 0; // -1 zurück, 0 stop, +1 vor
+      if (keys['ArrowUp'] || keys['w'] || keys['W'] || touchUp) move = 1;
+      if (keys['ArrowDown'] || keys['s'] || keys['S'] || touchDown) move = -1;
+
+      boat.speed = move * 6; // Anzeige in kn (nur UI)
+
+      if (move !== 0) {
+        const headingRad = degToRad(boat.heading);
+        // Direkte Kartenbewegung – zum Testen klar sichtbar
+        const step = MOVE_DEG_PER_SEC * dt * timeScale;
+        boat.lat += move * step * Math.cos(headingRad);
+        boat.lon += move * step * Math.sin(headingRad) / Math.max(0.2, Math.cos(degToRad(boat.lat)));
+      }
+
+      if (boat.lat > 85) boat.lat = 85;
+      if (boat.lat < -85) boat.lat = -85;
+      if (boat.lon > 180) boat.lon -= 360;
+      if (boat.lon < -180) boat.lon += 360;
+
+      // Tide + Tiefgang-Kollision
+      const tide = getTide(boat.lat, boat.lon);
+      lastTide = tide.height;
+      lastTideRising = tide.rising;
+
+      if (landMaskReady) {
+        if (move !== 0) refineLandWithOSM(boat.lat, boat.lon);
+        const chartDepth = estimateDepth(boat.lat, boat.lon);
+        lastDepth = chartDepth <= 0.05 ? 0 : Math.max(0, chartDepth + lastTide);
+        const minWater = boat.draft + KEEL_CLEARANCE;
+        if (lastDepth < minWater) {
+          boat.lat = lastWater.lat;
+          boat.lon = lastWater.lon;
+          boat.speed = 0;
+          if (!onLand) {
+            onLand = true;
+            if (lastDepth <= 0.05) showStatus('Land! Contessa auf Grund');
+            else showStatus('Zu flach ' + lastDepth.toFixed(1) + ' m (Tide ' + (lastTide >= 0 ? '+' : '') + lastTide.toFixed(2) + ' m)');
+          }
+        } else if (move !== 0) {
+          onLand = false;
+          lastWater = { lat: boat.lat, lon: boat.lon };
+          if (osmLandOverride === true && lastDepth > minWater) osmLandOverride = null;
+        }
+      }
+    }
+
+    /**
+     * Vereinfachte Tide-Simulation (Sinus, ~12,42 h).
+     * Ostsee: klein (~±0,25 m), Nordsee/Atlantik: größer.
+     * phase abhängig von Länge (grobe Ortsverschiebung).
+     */
+    function tideAmplitude(lat, lon) {
+      // Nordsee / Englischer Kanal / Atlantik-Küsten: größerer Hub
+      if (lon < 8.5 && lat > 51 && lat < 59) return 1.8;      // Deutsche Bucht grob
+      if (lon < 2 && lat > 48 && lat < 62) return 2.4;        // Nordsee W
+      if (lon < -5 && lat > 36 && lat < 60) return 2.2;       // Atlantik Europa
+      if (lat > 53.5 && lat < 66 && lon > 9 && lon < 30) return 0.25; // Ostsee
+      if (lat > 53 && lat < 56 && lon > 8 && lon < 13) return 0.35;   // Kieler Bucht
+      // Mittelmeer: schwach
+      if (lat > 30 && lat < 46 && lon > -6 && lon < 36) return 0.2;
+      return 0.6; // Default gemäßigt
+    }
+
+    function getTide(lat, lon) {
+      const amp = tideAmplitude(lat, lon);
+      // Stunden seit fester Epoche (UTC), leicht ortsversetzt
+      const hours = Date.now() / 3600000 + lon / 30;
+      const phase = (hours / TIDE_PERIOD_H) * 2 * Math.PI;
+      const height = amp * Math.sin(phase);
+      // Ableitung: cos > 0 → steigend
+      const rising = Math.cos(phase) > 0;
+      return { height, rising, amp };
+    }
+
+    // ---------- Land/Wasser-Maske (Natural Earth 50m) ----------
+    function pointInRing(lat, lon, ring) {
+      // Ray-casting; ring: [[lon,lat], ...]
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = ring[i][0], yi = ring[i][1];
+        const xj = ring[j][0], yj = ring[j][1];
+        const intersect = ((yi > lat) !== (yj > lat)) &&
+          (lon < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-15) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function pointInPolygon(lat, lon, rings) {
+      // rings[0] = outer, weitere = Löcher (Seen etc.)
+      if (!rings || !rings.length) return false;
+      if (!pointInRing(lat, lon, rings[0])) return false;
+      for (let h = 1; h < rings.length; h++) {
+        if (pointInRing(lat, lon, rings[h])) return false; // in See = Wasser
+      }
+      return true;
+    }
+
+    function isLand(lat, lon) {
+      for (const poly of landPolygons) {
+        if (pointInPolygon(lat, lon, poly)) return true;
+      }
+      return false;
+    }
+
+    /**
+     * Wassertiefe:
+     * 1) Natural-Earth-Land → 0
+     * 2) Distanz zur erkannten Küste → flacher Anstieg
+     * 3) OSM-Override (landuse/building) setzt auf 0 (präziser an der Küste)
+     */
+    let osmLandOverride = null; // null | true (Land) | false (Wasser)
+    let osmLandCheckAt = 0;
+
+    function estimateDepth(lat, lon) {
+      if (osmLandOverride === true) return 0;
+      if (isLand(lat, lon)) return 0;
+      const mPerDegLat = 111320;
+      const mPerDegLon = 111320 * Math.max(0.2, Math.cos(degToRad(lat)));
+      // Weitere Ringe: NE-50m-Küste ist oft km-ungenau
+      const rings = [50, 100, 200, 350, 500, 800, 1200, 2000, 3500];
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1],[0.7,0.7],[0.7,-0.7],[-0.7,0.7],[-0.7,-0.7],
+                    [1,0.4],[-1,0.4],[0.4,1],[0.4,-1]];
+      for (const m of rings) {
+        const dLat = m / mPerDegLat;
+        const dLon = m / mPerDegLon;
+        for (const [dy, dx] of dirs) {
+          if (isLand(lat + dy * dLat, lon + dx * dLon)) {
+            // Sehr flacher Anstieg: Contessa braucht ~1,5 m → erst ab ~500 m+ von grober Küste
+            return Math.max(0.1, m * 0.003);
+          }
+        }
+      }
+      return 20;
+    }
+
+    /** OSM-Feincheck: Gebäude/Landuse am Punkt → definitiv Land */
+    async function refineLandWithOSM(lat, lon) {
+      if (Date.now() - osmLandCheckAt < 2000) return;
+      osmLandCheckAt = Date.now();
+      try {
+        const q = `[out:json][timeout:8];
+(
+  way(around:25,${lat.toFixed(5)},${lon.toFixed(5)})["building"];
+  way(around:25,${lat.toFixed(5)},${lon.toFixed(5)})["landuse"];
+  way(around:25,${lat.toFixed(5)},${lon.toFixed(5)})["natural"="wood"];
+  way(around:25,${lat.toFixed(5)},${lon.toFixed(5)})["natural"="scrub"];
+  way(around:25,${lat.toFixed(5)},${lon.toFixed(5)})["natural"="grassland"];
+  way(around:25,${lat.toFixed(5)},${lon.toFixed(5)})["leisure"="park"];
+  way(around:20,${lat.toFixed(5)},${lon.toFixed(5)})["highway"];
+  way(around:40,${lat.toFixed(5)},${lon.toFixed(5)})["natural"="water"];
+  way(around:40,${lat.toFixed(5)},${lon.toFixed(5)})["water"];
+);
+out tags 25;`;
+        const res = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: q
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        let land = 0, water = 0;
+        for (const el of (data.elements || [])) {
+          const t = el.tags || {};
+          if (t.building || t.highway || t.landuse || t.leisure === 'park' ||
+              t.natural === 'wood' || t.natural === 'scrub' || t.natural === 'grassland') land++;
+          if (t.natural === 'water' || t.water) water++;
+        }
+        if (land > 0 && water === 0) {
+          osmLandOverride = true;
+        } else if (water > 0 && land === 0) {
+          osmLandOverride = false;
+        } else if (land > water) {
+          osmLandOverride = true;
+        } else {
+          osmLandOverride = false;
+        }
+      } catch (_) { /* ignore */ }
+    }
+
+    async function loadLandMask() {
+      try {
+        showStatus('Lade Land/Wasser-Maske…');
+        const res = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json');
+        const topo = await res.json();
+        const geo = topojson.feature(topo, topo.objects.land);
+        landPolygons = [];
+        const feats = geo.type === 'FeatureCollection' ? geo.features : [geo];
+        for (const f of feats) {
+          const g = f.geometry;
+          if (!g) continue;
+          if (g.type === 'Polygon') {
+            landPolygons.push(g.coordinates);
+          } else if (g.type === 'MultiPolygon') {
+            for (const p of g.coordinates) landPolygons.push(p);
+          }
+        }
+        landMaskReady = true;
+        // Start muss klar tief genug sein
+        if (estimateDepth(boat.lat, boat.lon) < boat.draft + KEEL_CLEARANCE) {
+          boat.lat = 54.55;
+          boat.lon = 10.40;
+          lastWater = { lat: boat.lat, lon: boat.lon };
+          updateBoatMarker();
+          map.setView([boat.lat, boat.lon], nearestZoomLevel(map.getZoom()));
+        }
+        showStatus('Land/Wasser-Maske aktiv (' + landPolygons.length + ' Polygone)');
+      } catch (e) {
+        console.error(e);
+        showStatus('Land-Maske fehlgeschlagen – ohne Kollision');
+      }
+    }
+
+    // ===================== HÄFEN (OSM / Overpass) =====================
+    function scheduleHarbourLoad() {
+      if (!harboursEnabled) return;
+      clearTimeout(harbourFetchTimer);
+      harbourFetchTimer = setTimeout(loadHarboursInView, 700);
+    }
+
+    async function loadHarboursInView() {
+      if (!map || !harboursEnabled) return;
+      const z = map.getZoom();
+      if (z < 8) {
+        showStatus('Näher zoomen für Häfen (ab Zoom 8)');
+        return;
+      }
+      const b = map.getBounds();
+      const s = b.getSouth().toFixed(4);
+      const w = b.getWest().toFixed(4);
+      const n = b.getNorth().toFixed(4);
+      const e = b.getEast().toFixed(4);
+      const key = `${s},${w},${n},${e},${z}`;
+      if (key === lastHarbourQuery) return;
+      lastHarbourQuery = key;
+
+      const query = `[out:json][timeout:20];
+(
+  nwr["leisure"="marina"](${s},${w},${n},${e});
+  nwr["harbour"](${s},${w},${n},${e});
+  nwr["seamark:type"="harbour"](${s},${w},${n},${e});
+);
+out center 80;`;
+
+      try {
+        const res = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: query
+        });
+        if (!res.ok) throw new Error('Overpass ' + res.status);
+        const data = await res.json();
+        addHarbourMarkers(data.elements || []);
+      } catch (err) {
+        console.warn('Häfen laden fehlgeschlagen', err);
+        showStatus('Häfen gerade nicht erreichbar');
+      }
+    }
+
+    function addHarbourMarkers(elements) {
+      for (const el of elements) {
+        const lat = el.lat ?? el.center?.lat;
+        const lon = el.lon ?? el.center?.lon;
+        if (lat == null || lon == null) continue;
+        const id = el.type + '/' + el.id;
+        if (harbourCache.has(id)) continue;
+
+        const tags = el.tags || {};
+        const name = tags.name || tags['seamark:name'] || 'Hafen / Marina';
+        const kind = tags.leisure === 'marina' ? 'Marina' : (tags.harbour ? 'Hafen' : 'Liegeplatz');
+
+        const icon = L.divIcon({
+          className: '',
+          html: `<div style="
+            width:16px;height:16px;border-radius:50%;
+            background:#f59e0b;border:2px solid #fff;
+            box-shadow:0 1px 3px rgba(0,0,0,.5);
+          "></div>`,
+          iconSize: [16, 16],
+          iconAnchor: [8, 8]
+        });
+
+        const marker = L.marker([lat, lon], { icon, zIndexOffset: 400 });
+        marker.bindPopup(`
+          <div class="harbour-popup">
+            <h3>⚓ ${escapeHtml(name)}</h3>
+            <p>${escapeHtml(kind)}</p>
+            <p>${lat.toFixed(4)}, ${lon.toFixed(4)}</p>
+            <p style="opacity:.75">Shop / Aufträge folgen später</p>
+            <button type="button" onclick="window.sailRemoteGoHarbour(${lat},${lon})">Ansteuern</button>
+          </div>
+        `);
+        marker.addTo(harbourLayer);
+        harbourCache.set(id, marker);
+      }
+      document.getElementById('harbour-count').textContent = harbourCache.size;
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, (c) => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[c]));
+    }
+
+    window.sailRemoteGoHarbour = function(lat, lon) {
+      followBoat = false;
+      map.setView([lat, lon], nearestZoomLevel(Math.max(map.getZoom(), 12)));
+      showStatus('Hafen anvisiert – Shop folgt später');
+    };
+
+    // ===================== AIS =====================
+    function connectAIS() {
+      if (!aisKey) return;
+      if (aisSocket) {
+        try { aisSocket.close(); } catch(e) {}
+      }
+
+      showStatus('Verbinde AIS…');
+      aisSocket = new WebSocket('wss://stream.aisstream.io/v0/stream');
+
+      aisSocket.onopen = () => {
+        const box = [
+          [boat.lat - AIS_BOX_DEG, boat.lon - AIS_BOX_DEG],
+          [boat.lat + AIS_BOX_DEG, boat.lon + AIS_BOX_DEG]
+        ];
+        const msg = {
+          APIKey: aisKey,
+          BoundingBoxes: [box],
+          FilterMessageTypes: ['PositionReport']
+        };
+        aisSocket.send(JSON.stringify(msg));
+        showStatus('AIS verbunden');
+      };
+
+      aisSocket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.MessageType === 'PositionReport' && data.MetaData) {
+            handleAISPosition(data);
+          }
+        } catch (e) {}
+      };
+
+      aisSocket.onclose = () => {
+        showStatus('AIS getrennt');
+        // try reconnect after delay if key exists
+        if (aisKey) setTimeout(connectAIS, 8000);
+      };
+
+      aisSocket.onerror = () => {
+        showStatus('AIS Fehler – Key prüfen');
+      };
+    }
+
+    function handleAISPosition(data) {
+      const meta = data.MetaData;
+      const pos = data.Message?.PositionReport;
+      if (!meta || !pos) return;
+
+      const mmsi = meta.MMSI;
+      const lat = meta.latitude ?? pos.Latitude;
+      const lon = meta.longitude ?? pos.Longitude;
+      if (lat == null || lon == null) return;
+
+      const name = (meta.ShipName || '').trim() || `MMSI ${mmsi}`;
+      const cog = pos.Cog ?? pos.Heading ?? 0;
+      const sog = (pos.Sog ?? 0); // already in knots usually
+
+      let entry = ships.get(mmsi);
+      if (!entry) {
+        const icon = L.divIcon({
+          className: '',
+          html: `<div style="
+            width: 18px; height: 18px;
+            background: #22c55e;
+            border: 2px solid #fff;
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(${cog}deg);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.6);
+          " title="${name}"></div>`,
+          iconSize: [18, 18],
+          iconAnchor: [9, 9]
+        });
+        const marker = L.marker([lat, lon], { icon, zIndexOffset: 500 })
+          .bindPopup(`<b>${name}</b><br>Kurs: ${Math.round(cog)}°<br>Speed: ${sog.toFixed(1)} kn`);
+        marker.addTo(map);
+        entry = { marker, name, lastSeen: Date.now() };
+        ships.set(mmsi, entry);
+      } else {
+        entry.marker.setLatLng([lat, lon]);
+        // update rotation roughly
+        const iconEl = entry.marker.getElement();
+        if (iconEl) {
+          const div = iconEl.querySelector('div');
+          if (div) div.style.transform = `rotate(${cog}deg)`;
+        }
+        entry.lastSeen = Date.now();
+      }
+
+      document.getElementById('ship-count').textContent = ships.size;
+    }
+
+    // Clean old ships
+    setInterval(() => {
+      const now = Date.now();
+      for (const [mmsi, entry] of ships) {
+        if (now - entry.lastSeen > 120000) { // 2 min
+          map.removeLayer(entry.marker);
+          ships.delete(mmsi);
+        }
+      }
+      document.getElementById('ship-count').textContent = ships.size;
+    }, 30000);
+
+    // Update AIS bounding box occasionally when boat moves a lot
+    let lastAISCenter = { lat: boat.lat, lon: boat.lon };
+    function maybeUpdateAISBox() {
+      const dLat = Math.abs(boat.lat - lastAISCenter.lat);
+      const dLon = Math.abs(boat.lon - lastAISCenter.lon);
+      if (dLat > 0.15 || dLon > 0.15) {
+        lastAISCenter = { lat: boat.lat, lon: boat.lon };
+        if (aisSocket && aisSocket.readyState === WebSocket.OPEN) {
+          const box = [
+            [boat.lat - AIS_BOX_DEG, boat.lon - AIS_BOX_DEG],
+            [boat.lat + AIS_BOX_DEG, boat.lon + AIS_BOX_DEG]
+          ];
+          aisSocket.send(JSON.stringify({
+            APIKey: aisKey,
+            BoundingBoxes: [box],
+            FilterMessageTypes: ['PositionReport']
+          }));
+        }
+      }
+    }
+
+    // ===================== UI / INPUT =====================
+    function updateUI() {
+      document.getElementById('speed').textContent = boat.speed.toFixed(1);
+      document.getElementById('heading').textContent = Math.round(boat.heading);
+      const twaEl = document.getElementById('twa');
+      if (twaEl) twaEl.textContent = Math.round(getTrueWindAngle());
+      const depthEl = document.getElementById('depth');
+      if (depthEl) depthEl.textContent = landMaskReady ? lastDepth.toFixed(1) : '–';
+      const tideEl = document.getElementById('tide');
+      if (tideEl) {
+        const sign = lastTide >= 0 ? '+' : '';
+        const dir = lastTideRising ? '↑' : '↓';
+        tideEl.textContent = sign + lastTide.toFixed(2) + ' m ' + dir;
+      }
+    }
+
+    function showStatus(msg) {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 2800);
+    }
+
+    window.addEventListener('keydown', e => {
+      keys[e.key] = true;
+      if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(e.key)) e.preventDefault();
+    });
+    window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+    function setupButton(id, onStart, onEnd) {
+      const btn = document.getElementById(id);
+      const start = (e) => { e.preventDefault(); onStart(); btn.classList.add('active'); };
+      const end = (e) => { e.preventDefault(); onEnd(); btn.classList.remove('active'); };
+      btn.addEventListener('touchstart', start, { passive: false });
+      btn.addEventListener('touchend', end);
+      btn.addEventListener('touchcancel', end);
+      btn.addEventListener('mousedown', start);
+      btn.addEventListener('mouseup', end);
+      btn.addEventListener('mouseleave', end);
+    }
+
+    setupButton('btn-left', () => touchLeft = true, () => touchLeft = false);
+    setupButton('btn-right', () => touchRight = true, () => touchRight = false);
+    // Touch: − = rückwärts, ⛵ = voraus halten, + = voraus
+    setupButton('btn-slow', () => touchDown = true, () => touchDown = false);
+    setupButton('btn-fast', () => touchUp = true, () => touchUp = false);
+    setupButton('btn-sail', () => touchUp = true, () => touchUp = false);
+
+    // AIS Panel
+    document.getElementById('ais-btn').onclick = () => {
+      document.getElementById('ais-key-input').value = aisKey;
+      document.getElementById('ais-panel').classList.add('visible');
+    };
+    document.getElementById('ais-cancel').onclick = () => {
+      document.getElementById('ais-panel').classList.remove('visible');
+    };
+    document.getElementById('ais-save').onclick = () => {
+      aisKey = document.getElementById('ais-key-input').value.trim();
+      localStorage.setItem('sailremote_ais_key', aisKey);
+      document.getElementById('ais-panel').classList.remove('visible');
+      if (aisKey) {
+        connectAIS();
+      } else {
+        showStatus('Kein Key – AIS deaktiviert');
+      }
+    };
+
+    // Zeitraffer (Entwickler)
+    document.getElementById('time-btn').onclick = cycleTimeScale;
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 't' || e.key === 'T') {
+        e.preventDefault();
+        cycleTimeScale();
+      }
+    });
+
+    // Double-tap map to re-follow
+    let lastTap = 0;
+    map?.on?.('click', () => {
+      const now = Date.now();
+      if (now - lastTap < 300) {
+        followBoat = true;
+        map.panTo([boat.lat, boat.lon]);
+        showStatus('Karte folgt wieder dem Boot');
+      }
+      lastTap = now;
+    });
+
+    // ===================== LOOP =====================
+    function loop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+
+      // timeScale beschleunigt die Simulation (Echtzeit-Physik × Zeitraffer)
+      updatePhysics(dt * timeScale);
+      updateBoatMarker();
+      updateUI();
+      maybeUpdateAISBox();
+
+      if (Date.now() - wind.lastUpdate > WIND_UPDATE_MS) {
+        fetchWind();
+      }
+
+      requestAnimationFrame(loop);
+    }
+
+    function cycleTimeScale() {
+      const idx = TIME_SCALE_STEPS.indexOf(timeScale);
+      timeScale = TIME_SCALE_STEPS[(idx + 1) % TIME_SCALE_STEPS.length];
+      showStatus(timeScale === 1 ? 'Zeitraffer: Echtzeit (1×)' : `Zeitraffer: ${timeScale}×`);
+      const el = document.getElementById('timescale');
+      if (el) el.textContent = timeScale === 1 ? '1×' : timeScale + '×';
+    }
+
+    // ===================== START =====================
+    function showBootError(msg) {
+      const el = document.getElementById('boot-error');
+      if (el) {
+        el.style.display = 'block';
+        el.innerHTML = '<b>Startfehler</b><br>' + msg +
+          '<br><br>Tipps: Internet prüfen, Datei in Chrome/Edge öffnen, F12 → Konsole.';
+      }
+      console.error(msg);
+    }
+
+    function startGame() {
+      if (typeof L === 'undefined') {
+        showBootError('Leaflet konnte nicht geladen werden (CDN blockiert?).');
+        return;
+      }
+      try {
+        initMap();
+      } catch (e) {
+        showBootError('initMap: ' + (e && e.message ? e.message : e));
+        return;
+      }
+
+      // Wichtig auf Desktop: Größe neu berechnen
+      setTimeout(() => { try { map.invalidateSize(); } catch (_) {} }, 100);
+      setTimeout(() => { try { map.invalidateSize(); } catch (_) {} }, 500);
+      window.addEventListener('resize', () => {
+        try { map.invalidateSize(); } catch (_) {}
+      });
+
+      map.on('click', () => {
+        const now = Date.now();
+        if (now - lastTap < 300) {
+          followBoat = true;
+          map.panTo([boat.lat, boat.lon]);
+          showStatus('Karte folgt wieder dem Boot');
+        }
+        lastTap = now;
+      });
+
+      document.getElementById('follow-btn').onclick = () => {
+        followBoat = true;
+        map.panTo([boat.lat, boat.lon]);
+        showStatus('Karte folgt dem Boot');
+      };
+      document.getElementById('windfield-btn').onclick = () => setWindField(!windFieldOn);
+      document.getElementById('wavefield-btn').onclick = () => setWaveField(!waveFieldOn);
+      document.getElementById('zoom-out-btn').onclick = () => zoomOutFixed();
+      document.getElementById('zoom-in-btn').onclick = () => zoomInFixed();
+
+      document.getElementById('harbours-btn').onclick = () => {
+        harboursEnabled = !harboursEnabled;
+        if (harboursEnabled) {
+          if (!map.hasLayer(harbourLayer)) harbourLayer.addTo(map);
+          loadHarboursInView();
+          showStatus('Häfen an');
+        } else {
+          if (map.hasLayer(harbourLayer)) map.removeLayer(harbourLayer);
+          showStatus('Häfen aus');
+        }
+      };
+
+      // Karte sofort nutzbar – Maske parallel
+      showStatus('Karte startet…');
+      requestAnimationFrame(loop);
+      fetchWind().then(() => updateWindUI()).catch(() => {});
+      loadLandMask().then(() => {
+        showStatus('Maske + Karte bereit · Pfeiltasten');
+        scheduleHarbourLoad();
+        if (aisKey) setTimeout(connectAIS, 1000);
+      }).catch(() => {
+        showStatus('Karte bereit (ohne Land-Maske)');
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', startGame);
+    } else {
+      // Leaflet-Script kann noch laden
+      setTimeout(startGame, 50);
+    }
+  </script>
+</body>
+</html>
